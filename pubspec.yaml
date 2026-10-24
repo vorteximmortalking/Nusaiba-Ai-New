@@ -14,7 +14,7 @@ dependencies:
   http: ^1.1.0
   shared_preferences: ^2.2.2
   permission_handler: ^11.1.0
-  speech_to_text: ^6.5.1
+  speech_to_text: ^7.0.0
   flutter_tts: ^3.8.3
   url_launcher: ^6.2.2
   android_intent_plus: ^5.1.0  # <-- নতুন প্যাকেজ
