@@ -1,5 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,7 +18,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final FlutterTts _tts = FlutterTts();
   bool _isListening = false;
   bool _isLoading = false;
-  GenerativeModel? _model;
+  String _apiKey = "";
 
   @override
   void initState() {
@@ -34,10 +35,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _loadApiKey() async {
     final prefs = await SharedPreferences.getInstance();
-    String apiKey = prefs.getString('gemini_api_key') ?? "";
-    if (apiKey.isNotEmpty) {
-      _model = GenerativeModel(model: 'gemini-1.5-flash', apiKey: apiKey);
-    }
+    setState(() {
+      _apiKey = prefs.getString('gemini_api_key') ?? "";
+    });
   }
 
   void _listen() async {
@@ -61,7 +61,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _sendMessage() async {
     if (_controller.text.trim().isEmpty) return;
-    if (_model == null) {
+    if (_apiKey.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('আগে সেটিংস থেকে API Key দিন!')));
       return;
     }
@@ -74,19 +74,34 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
-      // Nusaiba-র ব্যক্তিত্ব (System Prompt)
-      final prompt = "You are Nusaiba, a warm, caring, and friendly female AI assistant. You speak in a soft, empathetic tone. Always answer in the language the user speaks. You occasionally use gentle emojis like 🌸💙. User says: $userMsg";
+      final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=$_apiKey');
       
-      final response = await _model!.generateContent([Content.text(prompt)]);
-      String botMsg = response.text ?? "আমি বুঝতে পারিনি।";
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "contents": [
+            {
+              "parts": [
+                {"text": "You are Nusaiba, a warm, caring, and friendly female AI assistant. You speak in a soft, empathetic tone. Always answer in the language the user speaks. You occasionally use gentle emojis like 🌸💙. User says: $userMsg"}
+              ]
+            }
+          ]
+        }),
+      );
 
-      setState(() {
-        _messages.add({"role": "bot", "text": botMsg});
-        _isLoading = false;
-      });
-      
-      _tts.speak(botMsg);
-
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        String botMsg = data['candidates'][0]['content']['parts'][0]['text'];
+        
+        setState(() {
+          _messages.add({"role": "bot", "text": botMsg});
+          _isLoading = false;
+        });
+        _tts.speak(botMsg);
+      } else {
+        throw Exception('API Error: ${response.body}');
+      }
     } catch (e) {
       setState(() {
         _messages.add({"role": "bot", "text": "এরর: $e"});
