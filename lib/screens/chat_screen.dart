@@ -74,7 +74,6 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
-      // Gemini prompt instructs Nusaiba to reply in Bengali and output ACTION tags for device control
       final prompt = """
       You are Nusaiba, a caring AI girlfriend. Always reply in Bengali (Bangla).
       If the user asks to open an app, play a song, or call someone, reply strictly in this format:
@@ -85,7 +84,8 @@ class _ChatScreenState extends State<ChatScreen> {
       User says: $userMsg
       """;
 
-      final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$_apiKey');
+      // New URL (v1 instead of v1beta, and direct call)
+      final url = Uri.parse('https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=$_apiKey');
       
       final response = await http.post(
         url,
@@ -118,11 +118,10 @@ class _ChatScreenState extends State<ChatScreen> {
           ActionService.makeCall(number.trim());
         }
 
-        // Speak the text after removing action tags
         _tts.speak(botMsg.replaceAll(RegExp(r'\[ACTION:.*?\]'), ''));
 
       } else {
-        throw Exception('API Error: ${response.statusCode}');
+        throw Exception('API Error: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       setState(() {
