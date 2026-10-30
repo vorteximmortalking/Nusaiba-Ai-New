@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import '../services/action_service.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -48,7 +49,6 @@ class _ChatScreenState extends State<ChatScreen> {
         _speech.listen(
           onResult: (val) => setState(() {
             _controller.text = val.recognizedWords;
-            if (val.hasConfidenceRating && val.confidence > 0.8) _sendMessage();
           }),
           localeId: 'bn_BD',
         );
@@ -62,7 +62,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _sendMessage() async {
     if (_controller.text.trim().isEmpty) return;
     if (_apiKey.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('আগে সেটিংস থেকে API Key দিন!')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Set API Key first!')));
       return;
     }
 
@@ -74,18 +74,25 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
-      final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=$_apiKey');
+      // Gemini prompt instructs Nusaiba to reply in Bengali and output ACTION tags for device control
+      final prompt = """
+      You are Nusaiba, a caring AI girlfriend. Always reply in Bengali (Bangla).
+      If the user asks to open an app, play a song, or call someone, reply strictly in this format:
+      [ACTION:OPEN_APP:com.facebook.katana] (for Facebook)
+      [ACTION:PLAY_YOUTUBE:search query]
+      [ACTION:MAKE_CALL:phone number]
+      Otherwise, just reply normally in Bangla.
+      User says: $userMsg
+      """;
+
+      final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$_apiKey');
       
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           "contents": [
-            {
-              "parts": [
-                {"text": "You are Nusaiba, a warm, caring, and friendly female AI assistant. You speak in a soft, empathetic tone. Always answer in the language the user speaks. You occasionally use gentle emojis like 🌸💙. User says: $userMsg"}
-              ]
-            }
+            {"parts": [{"text": prompt}]}
           ]
         }),
       );
@@ -98,13 +105,28 @@ class _ChatScreenState extends State<ChatScreen> {
           _messages.add({"role": "bot", "text": botMsg});
           _isLoading = false;
         });
-        _tts.speak(botMsg);
+
+        // Check for actions
+        if (botMsg.contains('[ACTION:OPEN_APP:')) {
+          String appName = botMsg.split('[ACTION:OPEN_APP:')[1].split(']')[0];
+          ActionService.openApp(appName.trim());
+        } else if (botMsg.contains('[ACTION:PLAY_YOUTUBE:')) {
+          String query = botMsg.split('[ACTION:PLAY_YOUTUBE:')[1].split(']')[0];
+          ActionService.playYouTube(query.trim());
+        } else if (botMsg.contains('[ACTION:MAKE_CALL:')) {
+          String number = botMsg.split('[ACTION:MAKE_CALL:')[1].split(']')[0];
+          ActionService.makeCall(number.trim());
+        }
+
+        // Speak the text after removing action tags
+        _tts.speak(botMsg.replaceAll(RegExp(r'\[ACTION:.*?\]'), ''));
+
       } else {
-        throw Exception('API Error: ${response.body}');
+        throw Exception('API Error: ${response.statusCode}');
       }
     } catch (e) {
       setState(() {
-        _messages.add({"role": "bot", "text": "এরর: $e"});
+        _messages.add({"role": "bot", "text": "Error: $e"});
         _isLoading = false;
       });
     }
@@ -150,7 +172,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: TextField(
                     controller: _controller,
                     decoration: InputDecoration(
-                      hintText: 'মেসেজ লিখুন...',
+                      hintText: 'Type a message...',
                       filled: true,
                       fillColor: Colors.white10,
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
